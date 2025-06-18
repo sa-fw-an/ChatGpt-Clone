@@ -129,32 +129,38 @@ export default function EnhancedChatInterface() {
       setIsRegenerating(false)
       setStreamingMessageId(null)
       
-      // Store conversation in memory
-      if (user?.id && activeChatId && messages.length > 0) {
-        try {
-          const lastUserMessage = messages.findLast(m => m.role === 'user')
-          if (lastUserMessage) {
-            await memoryService.addMemory(
-              `User: ${lastUserMessage.content}\nAssistant: ${message.content}`,
-              { 
-                userId: user.id, 
-                chatId: activeChatId,
-                sessionId: `chat_${activeChatId}`
-              },
-              {
-                model: selectedModel,
-                timestamp: new Date().toISOString(),
-                messageCount: messages.length + 1
-              }
-            )
-          }
-        } catch (error) {
-          console.warn('Failed to store memory:', error)
-        }
+      // Optimistically update chat list immediately for better UX
+      if (activeChatId) {
+        setChats(prevChats => 
+          prevChats.map(chat => 
+            chat.id === activeChatId 
+              ? {
+                  ...chat,
+                  lastMessage: message.content.substring(0, 100),
+                  timestamp: new Date(),
+                  messageCount: (chat.messageCount || 0) + 1
+                }
+              : chat
+          )
+        )
       }
       
-      // Refresh chat list to update lastMessage
-      loadUserChats()
+      // Store conversation in memory (non-blocking)
+      if (user?.id && activeChatId && messages.length > 0) {
+        memoryService.addMemory(
+          `User: ${messages.findLast(m => m.role === 'user')?.content || ''}\nAssistant: ${message.content}`,
+          { 
+            userId: user.id, 
+            chatId: activeChatId,
+            sessionId: `chat_${activeChatId}`
+          },
+          {
+            model: selectedModel,
+            timestamp: new Date().toISOString(),
+            messageCount: messages.length + 1
+          }
+        ).catch(error => console.warn('Failed to store memory:', error))
+      }
     }
   })
 
@@ -412,12 +418,12 @@ export default function EnhancedChatInterface() {
     initializeModels()
   }, [])
 
-  // Load user chats
+  // Load user chats when user is available and authenticated
   useEffect(() => {
-    if (user && !isChatsLoaded) {
+    if (isLoaded && user && !isChatsLoaded) {
       loadUserChats()
     }
-  }, [user, isChatsLoaded])
+  }, [isLoaded, user, isChatsLoaded])
 
   // Load selected model from localStorage
   useEffect(() => {
@@ -427,11 +433,39 @@ export default function EnhancedChatInterface() {
     }
   }, [availableModels])
 
+  // Handle page initialization and prevent stale state
+  useEffect(() => {
+    // Reset error state on mount
+    setError(null)
+    
+    // Ensure proper state on fresh page load
+    if (typeof window !== 'undefined') {
+      // Clear any orphaned state
+      if (!activeChatId) {
+        setMessages([])
+      }
+    }
+  }, [])
+
+  // Sync active chat state with chat list
+  useEffect(() => {
+    if (activeChatId && chats.length > 0) {
+      const activeChat = chats.find(chat => chat.id === activeChatId)
+      if (!activeChat) {
+        // Active chat no longer exists, reset
+        setActiveChatId(null)
+        setMessages([])
+      }
+    }
+  }, [chats, activeChatId])
+
   const loadUserChats = async () => {
-    if (!user) return
+    if (!user || isSidebarLoading) return
     
     try {
       setIsSidebarLoading(true)
+      setError(null) // Clear errors first
+      
       const response = await fetch('/api/chats', {
         method: 'GET',
         headers: {
@@ -449,11 +483,11 @@ export default function EnhancedChatInterface() {
 
       const chatsData = await response.json()
       setChats(chatsData || [])
-      setError(null)
       setIsChatsLoaded(true)
     } catch (error) {
       console.error('Error loading chats:', error)
       setError('Failed to load chat history')
+      setChats([]) // Reset to empty array on error to prevent stale data
     } finally {
       setIsSidebarLoading(false)
     }
@@ -463,6 +497,8 @@ export default function EnhancedChatInterface() {
     if (!user) return
 
     try {
+      setError(null) // Clear any existing errors
+      
       const response = await fetch('/api/chats', {
         method: 'POST',
         headers: {
@@ -479,32 +515,56 @@ export default function EnhancedChatInterface() {
 
       const newChat = await response.json()
       
-      setChats(prev => [newChat, ...prev])
-      setMessages([])
-      setActiveChatId(newChat.id)
-      setError(null)
+      // Clear any attached files and input first
+      if (attachedFiles.length > 0) {
+        clearAttachedFiles()
+      }
+      setInput('')
+      
+      // Update state atomically to prevent race conditions
+      setMessages([]) // Clear messages first
+      setActiveChatId(newChat.id) // Set new active chat
+      
+      // Add new chat to the beginning of the list
+      setChats(prevChats => [newChat, ...prevChats])
       
       // Close sidebar on mobile after creating chat
       if (isMobile) {
         setIsSidebarOpen(false)
       }
+      
+      console.log('New chat created:', newChat.id)
     } catch (error) {
       console.error('Error creating new chat:', error)
-      setError('Failed to create chat')
+      setError('Failed to create chat. Please try again.')
     }
   }
 
   const selectChat = async (chatId: string) => {
-    if (isLoading) return
-    
-    setActiveChatId(chatId)
-    
-    // Close sidebar on mobile after selecting chat
-    if (isMobile) {
-      setIsSidebarOpen(false)
-    }
+    if (isLoading || chatId === activeChatId) return
     
     try {
+      setError(null) // Clear any existing errors
+      
+      // Clear any attached files when switching chats
+      if (attachedFiles.length > 0) {
+        clearAttachedFiles()
+      }
+      
+      // Clear input
+      setInput('')
+      
+      // Set loading state to prevent rapid clicking
+      setIsSidebarLoading(true)
+      
+      // Update active chat immediately for UI responsiveness
+      setActiveChatId(chatId)
+      
+      // Close sidebar on mobile after selecting chat
+      if (isMobile) {
+        setIsSidebarOpen(false)
+      }
+      
       const response = await fetch(`/api/chats/${chatId}`, {
         method: 'GET',
         headers: {
@@ -512,33 +572,46 @@ export default function EnhancedChatInterface() {
         },
       })
       
-      if (response.ok) {
-        const chat = await response.json()
-        // Convert chat messages to the format expected by useChat
-        const chatMessages = (chat.messages || []).map((msg: any) => ({
-          id: msg.id,
-          role: msg.role,
-          content: msg.content,
-          createdAt: new Date(msg.timestamp)
-        }))
-        setMessages(chatMessages)
+      if (!response.ok) {
+        throw new Error(`Failed to load chat: ${response.status}`)
       }
+      
+      const chat = await response.json()
+      
+      // Convert chat messages to the format expected by useChat
+      const chatMessages = (chat.messages || []).map((msg: any) => ({
+        id: msg.id,
+        role: msg.role,
+        content: msg.content,
+        createdAt: new Date(msg.timestamp)
+      }))
+      
+      // Update messages after ensuring chat is loaded
+      setMessages(chatMessages)
+      
+      console.log(`Loaded chat ${chatId} with ${chatMessages.length} messages`)
+      
     } catch (error) {
       console.error('Error loading chat messages:', error)
-      setError('Failed to load messages')
+      setError('Failed to load chat messages. Please try again.')
+      // Reset to safe state on error
+      setActiveChatId(null)
+      setMessages([])
+    } finally {
+      setIsSidebarLoading(false)
     }
   }
 
   const deleteChat = async (chatId: string) => {
     try {
-      const originalChats = [...chats]
-      setChats(chats.filter(chat => chat.id !== chatId))
+      setError(null) // Clear any existing errors
       
-      if (activeChatId === chatId) {
-        setMessages([])
-        setActiveChatId(null)
-      }
-
+      // Store original state for rollback
+      const originalChats = [...chats]
+      const originalActiveChatId = activeChatId
+      const originalMessages = [...messages]
+      
+      // First, make the API call
       const response = await fetch(`/api/chats/${chatId}`, {
         method: 'DELETE',
         headers: {
@@ -547,12 +620,52 @@ export default function EnhancedChatInterface() {
       })
 
       if (!response.ok) {
-        setChats(originalChats)
         throw new Error(`Failed to delete chat: ${response.status}`)
       }
+      
+      // Only update state after successful API call
+      setChats(originalChats.filter(chat => chat.id !== chatId))
+      
+      if (activeChatId === chatId) {
+        setMessages([])
+        setActiveChatId(null)
+        
+        // Clear any attached files when deleting active chat
+        if (attachedFiles.length > 0) {
+          clearAttachedFiles()
+        }
+        
+        // Clear input
+        setInput('')
+      }
+      
+      console.log(`Chat ${chatId} deleted successfully`)
+      
     } catch (error) {
       console.error('Error deleting chat:', error)
       setError('Failed to delete chat. Please try again.')
+    }
+  }
+
+  // Refresh chat list from server (use sparingly to avoid race conditions)
+  const refreshChatList = async () => {
+    if (!user || isSidebarLoading) return
+    
+    try {
+      const response = await fetch('/api/chats', {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      })
+
+      if (response.ok) {
+        const chatsData = await response.json()
+        setChats(chatsData || [])
+      }
+    } catch (error) {
+      console.warn('Failed to refresh chat list:', error)
+      // Don't show error to user for background refresh
     }
   }
 
@@ -750,6 +863,33 @@ export default function EnhancedChatInterface() {
       await handleMemoryEnhancedSubmit(e)
     }
   }
+
+  // Emergency state recovery function (for edge cases)
+  const recoverState = () => {
+    setError(null)
+    setIsRegenerating(false)
+    setStreamingMessageId(null)
+    setEditingMessageId(null)
+    setEditedContent('')
+    
+    // If we have an active chat but no messages, reload the chat
+    if (activeChatId && messages.length === 0) {
+      selectChat(activeChatId)
+    }
+  }
+
+  // Add window focus listener to ensure state is fresh
+  useEffect(() => {
+    const handleFocus = () => {
+      // Only refresh if we have significant time away (avoid unnecessary requests)
+      if (user && chats.length === 0 && isChatsLoaded) {
+        loadUserChats()
+      }
+    }
+    
+    window.addEventListener('focus', handleFocus)
+    return () => window.removeEventListener('focus', handleFocus)
+  }, [user, chats.length, isChatsLoaded])
 
   if (!isLoaded) {
     return (
