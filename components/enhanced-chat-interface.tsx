@@ -34,8 +34,9 @@ import Link from "next/link"
 interface Message {
   id: string
   content: string
-  role: "user" | "assistant"
-  timestamp: Date
+  role: "user" | "assistant" | "system" | "data"  // ← Updated to match UIMessage
+  timestamp?: Date
+  createdAt?: Date
   type?: "text" | "file"
   file?: {
     url: string
@@ -129,38 +130,32 @@ export default function EnhancedChatInterface() {
       setIsRegenerating(false)
       setStreamingMessageId(null)
       
-      // Optimistically update chat list immediately for better UX
-      if (activeChatId) {
-        setChats(prevChats => 
-          prevChats.map(chat => 
-            chat.id === activeChatId 
-              ? {
-                  ...chat,
-                  lastMessage: message.content.substring(0, 100),
-                  timestamp: new Date(),
-                  messageCount: (chat.messageCount || 0) + 1
-                }
-              : chat
-          )
-        )
+      // Store conversation in memory
+      if (user?.id && activeChatId && messages.length > 0) {
+        try {
+          const lastUserMessage = messages.findLast(m => m.role === 'user')
+          if (lastUserMessage) {
+            await memoryService.addMemory(
+              `User: ${lastUserMessage.content}\nAssistant: ${message.content}`,
+              { 
+                userId: user.id, 
+                chatId: activeChatId,
+                sessionId: `chat_${activeChatId}`
+              },
+              {
+                model: selectedModel,
+                timestamp: new Date().toISOString(),
+                messageCount: messages.length + 1
+              }
+            )
+          }
+        } catch (error) {
+          console.warn('Failed to store memory:', error)
+        }
       }
       
-      // Store conversation in memory (non-blocking)
-      if (user?.id && activeChatId && messages.length > 0) {
-        memoryService.addMemory(
-          `User: ${messages.findLast(m => m.role === 'user')?.content || ''}\nAssistant: ${message.content}`,
-          { 
-            userId: user.id, 
-            chatId: activeChatId,
-            sessionId: `chat_${activeChatId}`
-          },
-          {
-            model: selectedModel,
-            timestamp: new Date().toISOString(),
-            messageCount: messages.length + 1
-          }
-        ).catch(error => console.warn('Failed to store memory:', error))
-      }
+      // Refresh chat list to update lastMessage
+      loadUserChats()
     }
   })
 
@@ -210,7 +205,7 @@ export default function EnhancedChatInterface() {
     }
   }
 
-  const regenerateFromMessage = async (fromIndex: number, messagesToUse?: typeof messages) => {
+  const regenerateFromMessage = async (fromIndex: number, messagesToUse?: Message[]) => {
     if (isLoading || isRegenerating) return
 
     try {
@@ -218,14 +213,37 @@ export default function EnhancedChatInterface() {
       setError(null)
       
       const baseMessages = messagesToUse || messages
-      const messagesToSend = baseMessages.slice(0, fromIndex + 1)
       
-      // Remove any assistant messages after the user message
-      const cleanMessages = messagesToSend.filter((msg, idx) => 
-        idx <= fromIndex && (msg.role === 'user' || idx < fromIndex)
-      )
+      // Ensure we have a user message to regenerate from
+      let userMessageIndex = fromIndex
+      if (userMessageIndex < 0 || baseMessages[userMessageIndex]?.role !== 'user') {
+        // Find the last user message
+        for (let i = baseMessages.length - 1; i >= 0; i--) {
+          if (baseMessages[i].role === 'user') {
+            userMessageIndex = i
+            break
+          }
+        }
+      }
       
-      setMessages(cleanMessages)
+      if (userMessageIndex < 0) {
+        throw new Error('No user message found to regenerate from')
+      }
+      
+      // Keep only messages up to and including the user message
+      const messagesToSend = baseMessages.slice(0, userMessageIndex + 1)
+      setMessages(messagesToSend)
+      
+      // Create a temporary assistant message for streaming
+      const tempAssistantMessage: Message = {
+        id: `temp_${Date.now()}`,
+        role: 'assistant',
+        content: '',
+        createdAt: new Date()
+      }
+      
+      setStreamingMessageId(tempAssistantMessage.id)
+      setMessages([...messagesToSend, tempAssistantMessage])
       
       // Make API call to regenerate
       const response = await fetch('/api/chat', {
@@ -234,59 +252,118 @@ export default function EnhancedChatInterface() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          messages: cleanMessages.map(msg => ({
+          messages: messagesToSend.map(msg => ({
             role: msg.role,
             content: msg.content
           })),
           chatId: activeChatId,
           model: selectedModel,
-          fileData: processedFiles.length > 0 ? processedFiles[0] : null
+          fileData: processedFiles.length > 0 ? processedFiles[0] : null,
+          stream: true
         })
       })
 
       if (!response.ok) {
-        throw new Error('Failed to regenerate response')
+        throw new Error(`Failed to regenerate response: ${response.status}`)
       }
 
       // Handle streaming response
       const reader = response.body?.getReader()
       if (!reader) throw new Error('No response stream')
 
-      let assistantMessage = { id: Date.now().toString(), role: 'assistant' as const, content: '' }
-      setStreamingMessageId(assistantMessage.id)
-      setMessages([...cleanMessages, assistantMessage])
+      let fullContent = ''
+      const decoder = new TextDecoder()
 
       while (true) {
         const { done, value } = await reader.read()
         if (done) break
 
-        const chunk = new TextDecoder().decode(value)
+        const chunk = decoder.decode(value, { stream: true })
         const lines = chunk.split('\n').filter(line => line.trim())
         
         for (const line of lines) {
           if (line.startsWith('data: ')) {
-            const data = line.slice(6)
+            const data = line.slice(6).trim()
             if (data === '[DONE]') continue
             
             try {
               const parsed = JSON.parse(data)
               if (parsed.choices?.[0]?.delta?.content) {
-                assistantMessage.content += parsed.choices[0].delta.content
-                setMessages([...cleanMessages, { ...assistantMessage }])
+                fullContent += parsed.choices[0].delta.content
+                // Update the temporary message
+                setMessages([...messagesToSend, {
+                  ...tempAssistantMessage,
+                  content: fullContent
+                }])
               }
             } catch (e) {
               // Skip invalid JSON
+              console.warn('Failed to parse streaming JSON:', e)
             }
           }
         }
       }
 
+      // Finalize the message with a proper ID
+      const finalMessage: Message = {
+        id: `msg_${Date.now()}`,
+        role: 'assistant',
+        content: fullContent,
+        createdAt: new Date()
+      }
+      
+      setMessages([...messagesToSend, finalMessage])
+
     } catch (error) {
       console.error('Error regenerating response:', error)
-      setError('Failed to regenerate response')
+      setError('Failed to regenerate response: ' + (error instanceof Error ? error.message : 'Unknown error'))
+      
+      // Restore previous messages on error
+      if (messagesToUse) {
+        setMessages(messagesToUse)
+      }
     } finally {
       setIsRegenerating(false)
       setStreamingMessageId(null)
+    }
+  }
+
+  // Fixed reload function
+  const reloadLastMessage = async () => {
+    if (isLoading || isRegenerating || messages.length === 0) return
+
+    try {
+      // Find the last assistant message
+      let lastAssistantIndex = -1
+      for (let i = messages.length - 1; i >= 0; i--) {
+        if (messages[i].role === 'assistant') {
+          lastAssistantIndex = i
+          break
+        }
+      }
+
+      if (lastAssistantIndex === -1) {
+        // No assistant message to reload, just use the built-in reload
+        await reload()
+        return
+      }
+
+      // Find the user message that prompted this assistant response
+      let userMessageIndex = lastAssistantIndex - 1
+      while (userMessageIndex >= 0 && messages[userMessageIndex].role !== 'user') {
+        userMessageIndex--
+      }
+
+      if (userMessageIndex >= 0) {
+        // Regenerate from the user message
+        await regenerateFromMessage(userMessageIndex)
+      } else {
+        // Fallback to built-in reload
+        await reload()
+      }
+    } catch (error) {
+      console.error('Error reloading message:', error)
+      setError('Failed to reload message')
     }
   }
 
@@ -418,12 +495,12 @@ export default function EnhancedChatInterface() {
     initializeModels()
   }, [])
 
-  // Load user chats when user is available and authenticated
+  // Load user chats
   useEffect(() => {
-    if (isLoaded && user && !isChatsLoaded) {
+    if (user && !isChatsLoaded) {
       loadUserChats()
     }
-  }, [isLoaded, user, isChatsLoaded])
+  }, [user, isChatsLoaded])
 
   // Load selected model from localStorage
   useEffect(() => {
@@ -433,39 +510,11 @@ export default function EnhancedChatInterface() {
     }
   }, [availableModels])
 
-  // Handle page initialization and prevent stale state
-  useEffect(() => {
-    // Reset error state on mount
-    setError(null)
-    
-    // Ensure proper state on fresh page load
-    if (typeof window !== 'undefined') {
-      // Clear any orphaned state
-      if (!activeChatId) {
-        setMessages([])
-      }
-    }
-  }, [])
-
-  // Sync active chat state with chat list
-  useEffect(() => {
-    if (activeChatId && chats.length > 0) {
-      const activeChat = chats.find(chat => chat.id === activeChatId)
-      if (!activeChat) {
-        // Active chat no longer exists, reset
-        setActiveChatId(null)
-        setMessages([])
-      }
-    }
-  }, [chats, activeChatId])
-
   const loadUserChats = async () => {
-    if (!user || isSidebarLoading) return
+    if (!user) return
     
     try {
       setIsSidebarLoading(true)
-      setError(null) // Clear errors first
-      
       const response = await fetch('/api/chats', {
         method: 'GET',
         headers: {
@@ -483,11 +532,11 @@ export default function EnhancedChatInterface() {
 
       const chatsData = await response.json()
       setChats(chatsData || [])
+      setError(null)
       setIsChatsLoaded(true)
     } catch (error) {
       console.error('Error loading chats:', error)
       setError('Failed to load chat history')
-      setChats([]) // Reset to empty array on error to prevent stale data
     } finally {
       setIsSidebarLoading(false)
     }
@@ -497,8 +546,6 @@ export default function EnhancedChatInterface() {
     if (!user) return
 
     try {
-      setError(null) // Clear any existing errors
-      
       const response = await fetch('/api/chats', {
         method: 'POST',
         headers: {
@@ -515,56 +562,32 @@ export default function EnhancedChatInterface() {
 
       const newChat = await response.json()
       
-      // Clear any attached files and input first
-      if (attachedFiles.length > 0) {
-        clearAttachedFiles()
-      }
-      setInput('')
-      
-      // Update state atomically to prevent race conditions
-      setMessages([]) // Clear messages first
-      setActiveChatId(newChat.id) // Set new active chat
-      
-      // Add new chat to the beginning of the list
-      setChats(prevChats => [newChat, ...prevChats])
+      setChats(prev => [newChat, ...prev])
+      setMessages([])
+      setActiveChatId(newChat.id)
+      setError(null)
       
       // Close sidebar on mobile after creating chat
       if (isMobile) {
         setIsSidebarOpen(false)
       }
-      
-      console.log('New chat created:', newChat.id)
     } catch (error) {
       console.error('Error creating new chat:', error)
-      setError('Failed to create chat. Please try again.')
+      setError('Failed to create chat')
     }
   }
 
   const selectChat = async (chatId: string) => {
-    if (isLoading || chatId === activeChatId) return
+    if (isLoading) return
+    
+    setActiveChatId(chatId)
+    
+    // Close sidebar on mobile after selecting chat
+    if (isMobile) {
+      setIsSidebarOpen(false)
+    }
     
     try {
-      setError(null) // Clear any existing errors
-      
-      // Clear any attached files when switching chats
-      if (attachedFiles.length > 0) {
-        clearAttachedFiles()
-      }
-      
-      // Clear input
-      setInput('')
-      
-      // Set loading state to prevent rapid clicking
-      setIsSidebarLoading(true)
-      
-      // Update active chat immediately for UI responsiveness
-      setActiveChatId(chatId)
-      
-      // Close sidebar on mobile after selecting chat
-      if (isMobile) {
-        setIsSidebarOpen(false)
-      }
-      
       const response = await fetch(`/api/chats/${chatId}`, {
         method: 'GET',
         headers: {
@@ -572,46 +595,33 @@ export default function EnhancedChatInterface() {
         },
       })
       
-      if (!response.ok) {
-        throw new Error(`Failed to load chat: ${response.status}`)
+      if (response.ok) {
+        const chat = await response.json()
+        // Convert chat messages to the format expected by useChat
+        const chatMessages = (chat.messages || []).map((msg: any) => ({
+          id: msg.id,
+          role: msg.role,
+          content: msg.content,
+          createdAt: new Date(msg.timestamp || msg.createdAt)
+        }))
+        setMessages(chatMessages)
       }
-      
-      const chat = await response.json()
-      
-      // Convert chat messages to the format expected by useChat
-      const chatMessages = (chat.messages || []).map((msg: any) => ({
-        id: msg.id,
-        role: msg.role,
-        content: msg.content,
-        createdAt: new Date(msg.timestamp)
-      }))
-      
-      // Update messages after ensuring chat is loaded
-      setMessages(chatMessages)
-      
-      console.log(`Loaded chat ${chatId} with ${chatMessages.length} messages`)
-      
     } catch (error) {
       console.error('Error loading chat messages:', error)
-      setError('Failed to load chat messages. Please try again.')
-      // Reset to safe state on error
-      setActiveChatId(null)
-      setMessages([])
-    } finally {
-      setIsSidebarLoading(false)
+      setError('Failed to load messages')
     }
   }
 
   const deleteChat = async (chatId: string) => {
     try {
-      setError(null) // Clear any existing errors
-      
-      // Store original state for rollback
       const originalChats = [...chats]
-      const originalActiveChatId = activeChatId
-      const originalMessages = [...messages]
+      setChats(chats.filter(chat => chat.id !== chatId))
       
-      // First, make the API call
+      if (activeChatId === chatId) {
+        setMessages([])
+        setActiveChatId(null)
+      }
+
       const response = await fetch(`/api/chats/${chatId}`, {
         method: 'DELETE',
         headers: {
@@ -620,52 +630,12 @@ export default function EnhancedChatInterface() {
       })
 
       if (!response.ok) {
+        setChats(originalChats)
         throw new Error(`Failed to delete chat: ${response.status}`)
       }
-      
-      // Only update state after successful API call
-      setChats(originalChats.filter(chat => chat.id !== chatId))
-      
-      if (activeChatId === chatId) {
-        setMessages([])
-        setActiveChatId(null)
-        
-        // Clear any attached files when deleting active chat
-        if (attachedFiles.length > 0) {
-          clearAttachedFiles()
-        }
-        
-        // Clear input
-        setInput('')
-      }
-      
-      console.log(`Chat ${chatId} deleted successfully`)
-      
     } catch (error) {
       console.error('Error deleting chat:', error)
       setError('Failed to delete chat. Please try again.')
-    }
-  }
-
-  // Refresh chat list from server (use sparingly to avoid race conditions)
-  const refreshChatList = async () => {
-    if (!user || isSidebarLoading) return
-    
-    try {
-      const response = await fetch('/api/chats', {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      })
-
-      if (response.ok) {
-        const chatsData = await response.json()
-        setChats(chatsData || [])
-      }
-    } catch (error) {
-      console.warn('Failed to refresh chat list:', error)
-      // Don't show error to user for background refresh
     }
   }
 
@@ -863,33 +833,6 @@ export default function EnhancedChatInterface() {
       await handleMemoryEnhancedSubmit(e)
     }
   }
-
-  // Emergency state recovery function (for edge cases)
-  const recoverState = () => {
-    setError(null)
-    setIsRegenerating(false)
-    setStreamingMessageId(null)
-    setEditingMessageId(null)
-    setEditedContent('')
-    
-    // If we have an active chat but no messages, reload the chat
-    if (activeChatId && messages.length === 0) {
-      selectChat(activeChatId)
-    }
-  }
-
-  // Add window focus listener to ensure state is fresh
-  useEffect(() => {
-    const handleFocus = () => {
-      // Only refresh if we have significant time away (avoid unnecessary requests)
-      if (user && chats.length === 0 && isChatsLoaded) {
-        loadUserChats()
-      }
-    }
-    
-    window.addEventListener('focus', handleFocus)
-    return () => window.removeEventListener('focus', handleFocus)
-  }, [user, chats.length, isChatsLoaded])
 
   if (!isLoaded) {
     return (
@@ -1476,7 +1419,7 @@ export default function EnhancedChatInterface() {
                               <textarea
                                 ref={editTextareaRef}
                                 value={editedContent}
-                                onChange={(e) => setEditedContent(e.target.value)}
+                                                                onChange={(e) => setEditedContent(e.target.value)}
                                 className="w-full min-h-[100px] p-3 bg-[#404040] text-white rounded-lg border border-[#565656] focus:border-[#10a37f] focus:outline-none resize-y"
                                 placeholder="Edit your message..."
                                 autoFocus
