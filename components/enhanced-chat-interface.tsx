@@ -91,7 +91,6 @@ export default function EnhancedChatInterface() {
   // Memory service
   const [memoryService] = useState(() => new MemoryClient())
   const [relevantMemories, setRelevantMemories] = useState<any[]>([])
-  const [showKeyboardShortcuts, setShowKeyboardShortcuts] = useState(false)
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const editTextareaRef = useRef<HTMLTextAreaElement>(null)
@@ -322,10 +321,12 @@ export default function EnhancedChatInterface() {
   // Mobile detection and responsive handling
   useEffect(() => {
     const checkIsMobile = () => {
-      setIsMobile(window.innerWidth < 768)
+      setIsMobile(window.innerWidth < 1024) // Changed from 768 to 1024 for better tablet experience
       // Auto-close sidebar on mobile
-      if (window.innerWidth < 768) {
+      if (window.innerWidth < 1024) {
         setIsSidebarOpen(false)
+      } else {
+        setIsSidebarOpen(true) // Auto-open on desktop
       }
     }
     
@@ -348,44 +349,6 @@ export default function EnhancedChatInterface() {
       editTextareaRef.current.setSelectionRange(editTextareaRef.current.value.length, editTextareaRef.current.value.length)
     }
   }, [editingMessageId])
-
-  // Global keyboard shortcuts
-  useEffect(() => {
-    const handleKeyboardShortcuts = (e: KeyboardEvent) => {
-      // Escape to cancel editing
-      if (e.key === 'Escape' && editingMessageId) {
-        cancelEditing()
-        return
-      }
-      
-      // Cmd/Ctrl + K to focus input
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
-        e.preventDefault()
-        const inputElement = document.querySelector('textarea[placeholder*="Type your message"]') as HTMLTextAreaElement
-        if (inputElement) {
-          inputElement.focus()
-        }
-        return
-      }
-      
-      // Cmd/Ctrl + / to toggle sidebar
-      if ((e.metaKey || e.ctrlKey) && e.key === '/') {
-        e.preventDefault()
-        setIsSidebarOpen(!isSidebarOpen)
-        return
-      }
-      
-      // ? to show keyboard shortcuts
-      if (e.key === '?' && !editingMessageId) {
-        e.preventDefault()
-        setShowKeyboardShortcuts(true)
-        return
-      }
-    }
-
-    document.addEventListener('keydown', handleKeyboardShortcuts)
-    return () => document.removeEventListener('keydown', handleKeyboardShortcuts)
-  }, [editingMessageId, isSidebarOpen])
 
   // Context window management
   useEffect(() => {
@@ -463,31 +426,6 @@ export default function EnhancedChatInterface() {
       setSelectedModel(savedModel)
     }
   }, [availableModels])
-
-  // Keyboard shortcuts and accessibility
-  useEffect(() => {
-    const handleKeyboardShortcuts = (e: KeyboardEvent) => {
-      // Cmd/Ctrl + K to focus search or new chat
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
-        e.preventDefault()
-        createNewChat()
-      }
-      
-      // Escape to close sidebar on mobile
-      if (e.key === 'Escape' && isMobile) {
-        setIsSidebarOpen(false)
-      }
-      
-      // Cmd/Ctrl + / to toggle sidebar
-      if ((e.metaKey || e.ctrlKey) && e.key === '/') {
-        e.preventDefault()
-        setIsSidebarOpen(!isSidebarOpen)
-      }
-    }
-
-    document.addEventListener('keydown', handleKeyboardShortcuts)
-    return () => document.removeEventListener('keydown', handleKeyboardShortcuts)
-  }, [isMobile, isSidebarOpen])
 
   const loadUserChats = async () => {
     if (!user) return
@@ -856,7 +794,7 @@ export default function EnhancedChatInterface() {
       {/* Mobile Backdrop */}
       {isMobile && isSidebarOpen && (
         <div 
-          className="fixed inset-0 bg-black bg-opacity-50 z-40 md:hidden"
+          className="fixed inset-0 bg-black bg-opacity-50 z-40 lg:hidden"
           onClick={() => setIsSidebarOpen(false)}
           aria-hidden="true"
         />
@@ -868,7 +806,7 @@ export default function EnhancedChatInterface() {
           isSidebarOpen ? "w-64" : "w-0"
         } ${
           isMobile ? "fixed left-0 top-0 h-full z-50" : "relative"
-        } transition-all duration-300 overflow-hidden bg-[#171717] flex flex-col`}
+        } transition-all duration-300 overflow-hidden bg-[#171717] flex flex-col lg:w-64 lg:static lg:translate-x-0`}
         aria-label="Chat navigation"
       >
         {/* Sidebar Header */}
@@ -1167,37 +1105,37 @@ export default function EnhancedChatInterface() {
       {/* Main Content */}
       <main className="flex-1 flex flex-col min-w-0">
         {/* Header */}
-        <header className="flex items-center justify-between p-4 border-b border-[#2f2f2f] bg-[#212121]">
-          <div className="flex items-center gap-3">
+        <header className="flex items-center justify-between p-3 sm:p-4 border-b border-[#2f2f2f] bg-[#212121]">
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
             <button
-              className="text-white hover:bg-[#2f2f2f] p-2 rounded-md"
+              className="text-white hover:bg-[#2f2f2f] p-1.5 sm:p-2 rounded-md flex-shrink-0"
               onClick={() => setIsSidebarOpen(!isSidebarOpen)}
               aria-label="Toggle sidebar"
             >
-              <Menu className="h-5 w-5" />
+              <Menu className="h-4 w-4 sm:h-5 sm:w-5" />
             </button>
 
             {/* Model Selector */}
-            <div className="relative">
+            <div className="relative min-w-0 flex-1 max-w-xs">
               <button
-                className="flex items-center gap-2 text-white hover:bg-[#2f2f2f] px-3 py-2 rounded-md text-sm font-medium"
+                className="flex items-center gap-1 sm:gap-2 text-white hover:bg-[#2f2f2f] px-2 sm:px-3 py-1.5 sm:py-2 rounded-md text-xs sm:text-sm font-medium min-w-0 max-w-full"
                 onClick={() => setIsModelDropdownOpen(!isModelDropdownOpen)}
                 aria-expanded={isModelDropdownOpen}
                 aria-haspopup="listbox"
                 aria-label="Select AI model"
               >
-                <span className="hidden sm:inline">
-                  {availableModels.find(m => m.id === selectedModel)?.name || selectedModel}
+                <span className="truncate">
+                  {isMobile 
+                    ? (availableModels.find(m => m.id === selectedModel)?.name?.split(' ')[0] || 'GPT')
+                    : (availableModels.find(m => m.id === selectedModel)?.name || selectedModel)
+                  }
                 </span>
-                <span className="sm:hidden">
-                  {availableModels.find(m => m.id === selectedModel)?.name?.split(' ')[0] || 'GPT'}
-                </span>
-                <ChevronDown className="h-4 w-4" />
+                <ChevronDown className="h-3 w-3 sm:h-4 sm:w-4 flex-shrink-0" />
               </button>
 
               {isModelDropdownOpen && (
                 <div 
-                  className="absolute top-full left-0 mt-1 w-64 bg-[#2f2f2f] border border-[#404040] rounded-lg shadow-lg z-50"
+                  className="absolute top-full left-0 mt-1 w-56 sm:w-64 bg-[#2f2f2f] border border-[#404040] rounded-lg shadow-lg z-50 max-h-60 overflow-y-auto"
                   role="listbox"
                   aria-label="Available models"
                 >
@@ -1224,18 +1162,19 @@ export default function EnhancedChatInterface() {
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0">
             {/* Get Plus Button */}
-            <button className="bg-white text-black px-3 py-1.5 rounded-lg text-sm font-medium hover:bg-gray-100 transition-colors">
-              Get Plus
+            <button className="bg-white text-black px-2 sm:px-3 py-1 sm:py-1.5 rounded-lg text-xs sm:text-sm font-medium hover:bg-gray-100 transition-colors">
+              <span className="hidden sm:inline">Get Plus</span>
+              <span className="sm:hidden">Plus</span>
             </button>
             
             {/* User Profile */}
             <UserButton 
               appearance={{
                 elements: {
-                  avatarBox: "w-8 h-8",
-                  userButtonTrigger: "hover:bg-[#2f2f2f] rounded-lg transition-colors p-1",
+                  avatarBox: "w-7 h-7 sm:w-8 sm:h-8",
+                  userButtonTrigger: "hover:bg-[#2f2f2f] rounded-lg transition-colors p-0.5 sm:p-1",
                 }
               }}
             />
@@ -1244,37 +1183,37 @@ export default function EnhancedChatInterface() {
 
         {/* Chat Messages */}
         <div className="flex-1 overflow-y-auto">
-          <div className="max-w-3xl mx-auto px-4 py-6">
+          <div className="max-w-3xl mx-auto px-3 sm:px-4 py-4 sm:py-6">
             {messages.length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-full px-4">
-                <div className="text-center max-w-2xl">
-                  <h1 className="text-3xl sm:text-4xl font-medium mb-8 text-center">
+              <div className="flex flex-col items-center justify-center h-full px-2 sm:px-4">
+                <div className="text-center max-w-2xl w-full">
+                  <h1 className="text-2xl sm:text-3xl lg:text-4xl font-medium mb-6 sm:mb-8 text-center">
                     How can I help you today?
                   </h1>
                   
                   {/* Conversation Starters */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-8 max-w-2xl">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-3 mb-6 sm:mb-8 max-w-2xl w-full">
                     <button
                       onClick={() => setInput("Help me write a professional email")}
-                      className="p-4 rounded-2xl border border-[#404040] hover:border-[#565656] bg-[#2f2f2f]/30 hover:bg-[#2f2f2f]/50 transition-all text-left group"
+                      className="p-3 sm:p-4 rounded-xl sm:rounded-2xl border border-[#404040] hover:border-[#565656] bg-[#2f2f2f]/30 hover:bg-[#2f2f2f]/50 transition-all text-left group"
                     >
-                      <div className="text-sm font-medium mb-1">✍️ Write & Edit</div>
+                      <div className="text-xs sm:text-sm font-medium mb-1">✍️ Write & Edit</div>
                       <div className="text-xs text-[#8e8ea0]">Help me write a professional email</div>
                     </button>
                     
                     <button
                       onClick={() => setInput("Explain quantum computing in simple terms")}
-                      className="p-4 rounded-2xl border border-[#404040] hover:border-[#565656] bg-[#2f2f2f]/30 hover:bg-[#2f2f2f]/50 transition-all text-left group"
+                      className="p-3 sm:p-4 rounded-xl sm:rounded-2xl border border-[#404040] hover:border-[#565656] bg-[#2f2f2f]/30 hover:bg-[#2f2f2f]/50 transition-all text-left group"
                     >
-                      <div className="text-sm font-medium mb-1">🧠 Learn & Understand</div>
+                      <div className="text-xs sm:text-sm font-medium mb-1">🧠 Learn & Understand</div>
                       <div className="text-xs text-[#8e8ea0]">Explain quantum computing in simple terms</div>
                     </button>
                     
                     <button
                       onClick={() => setInput("Create a meal plan for the week")}
-                      className="p-4 rounded-2xl border border-[#404040] hover:border-[#565656] bg-[#2f2f2f]/30 hover:bg-[#2f2f2f]/50 transition-all text-left group"
+                      className="p-3 sm:p-4 rounded-xl sm:rounded-2xl border border-[#404040] hover:border-[#565656] bg-[#2f2f2f]/30 hover:bg-[#2f2f2f]/50 transition-all text-left group"
                     >
-                      <div className="text-sm font-medium mb-1">📋 Plan & Organize</div>
+                      <div className="text-xs sm:text-sm font-medium mb-1">📋 Plan & Organize</div>
                       <div className="text-xs text-[#8e8ea0]">Create a meal plan for the week</div>
                     </button>
                     
@@ -1289,45 +1228,36 @@ export default function EnhancedChatInterface() {
                 </div>
               </div>
             ) : (
-              <div className="space-y-4" role="log" aria-label="Chat messages" aria-live="polite">
+              <div className="space-y-3 sm:space-y-4" role="log" aria-label="Chat messages" aria-live="polite">
                 {messages.map((message, index) => (
                   <div key={message.id || index} className="group">
                     {message.role === 'assistant' ? (
                       /* Assistant Message */
-                      <div className="flex gap-4 mb-6">
-                        <div className="w-8 h-8 rounded-full bg-[#10a37f] flex items-center justify-center flex-shrink-0">
+                      <div className="flex gap-2 sm:gap-4 mb-4 sm:mb-6">
+                        <div className="w-6 h-6 sm:w-8 sm:h-8 rounded-full bg-[#10a37f] flex items-center justify-center flex-shrink-0">
                           {streamingMessageId === message.id ? (
-                            <Loader2 className="h-4 w-4 text-white animate-spin" />
+                            <Loader2 className="h-3 w-3 sm:h-4 sm:w-4 text-white animate-spin" />
                           ) : (
-                            <img src={GPTIcon.src} alt="ChatGPT" className="h-4 w-4" />
+                            <img src={GPTIcon.src} alt="ChatGPT" className="h-3 w-3 sm:h-4 sm:w-4" />
                           )}
                         </div>
                         
                         <div className="flex-1 min-w-0">
                           {editingMessageId === message.id ? (
                             // Editing mode
-                            <div className="space-y-3">
+                            <div className="space-y-2 sm:space-y-3">
                               <textarea
                                 ref={editTextareaRef}
                                 value={editedContent}
                                 onChange={(e) => setEditedContent(e.target.value)}
-                                className="w-full min-h-[100px] p-3 bg-[#2f2f2f] text-white rounded-lg border border-[#404040] focus:border-[#10a37f] focus:outline-none resize-y"
+                                className="w-full min-h-[80px] sm:min-h-[100px] p-2 sm:p-3 bg-[#2f2f2f] text-white rounded-lg border border-[#404040] focus:border-[#10a37f] focus:outline-none resize-y text-sm sm:text-base"
                                 placeholder="Edit your message..."
                                 autoFocus
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-                                    e.preventDefault()
-                                    saveEditedMessage()
-                                  } else if (e.key === 'Escape') {
-                                    e.preventDefault()
-                                    cancelEditing()
-                                  }
-                                }}
                               />
                               <div className="flex gap-2 justify-end">
                                 <button
                                   onClick={cancelEditing}
-                                  className="px-3 py-1.5 text-sm text-[#8e8ea0] hover:text-white hover:bg-[#2f2f2f] rounded-md transition-colors"
+                                  className="px-2 sm:px-3 py-1 sm:py-1.5 text-xs sm:text-sm text-[#8e8ea0] hover:text-white hover:bg-[#2f2f2f] rounded-md transition-colors"
                                 >
                                   Cancel
                                 </button>
@@ -1504,20 +1434,20 @@ export default function EnhancedChatInterface() {
         </div>
 
         {/* Input Area */}
-        <div className="p-4 bg-[#212121]">
+        <div className="p-3 sm:p-4 bg-[#212121]">
           <div className="max-w-3xl mx-auto">
             {/* Error Display */}
             {error && (
-              <div className="mb-4 p-3 bg-red-900/20 border border-red-500/30 rounded-lg" role="alert">
-                <div className="flex items-center gap-3">
-                  <AlertCircle className="h-4 w-4 text-red-400" />
-                  <span className="text-sm text-red-400">{error}</span>
+              <div className="mb-3 sm:mb-4 p-2 sm:p-3 bg-red-900/20 border border-red-500/30 rounded-lg" role="alert">
+                <div className="flex items-center gap-2 sm:gap-3">
+                  <AlertCircle className="h-3 w-3 sm:h-4 sm:w-4 text-red-400 flex-shrink-0" />
+                  <span className="text-xs sm:text-sm text-red-400 min-w-0 flex-1">{error}</span>
                   <button 
                     onClick={() => setError(null)}
-                    className="ml-auto text-red-400 hover:text-red-300"
+                    className="text-red-400 hover:text-red-300 flex-shrink-0"
                     aria-label="Dismiss error"
                   >
-                    <X className="h-4 w-4" />
+                    <X className="h-3 w-3 sm:h-4 sm:w-4" />
                   </button>
                 </div>
               </div>
@@ -1525,10 +1455,10 @@ export default function EnhancedChatInterface() {
 
             {/* Upload Progress */}
             {uploadProgress && (
-              <div className="mb-4 p-3 bg-[#2f2f2f] rounded-lg border border-[#404040]" role="status">
-                <div className="flex items-center gap-3">
-                  <Loader2 className="h-4 w-4 animate-spin text-[#10a37f]" />
-                  <span className="text-sm text-[#acacac]">{uploadProgress}</span>
+              <div className="mb-3 sm:mb-4 p-2 sm:p-3 bg-[#2f2f2f] rounded-lg border border-[#404040]" role="status">
+                <div className="flex items-center gap-2 sm:gap-3">
+                  <Loader2 className="h-3 w-3 sm:h-4 sm:w-4 animate-spin text-[#10a37f] flex-shrink-0" />
+                  <span className="text-xs sm:text-sm text-[#acacac] min-w-0 flex-1">{uploadProgress}</span>
                 </div>
               </div>
             )}
@@ -1557,17 +1487,17 @@ export default function EnhancedChatInterface() {
 
                 {/* File Attachment Preview */}
                 {attachedFiles.length > 0 && (
-                  <div className="px-4 pt-3">
-                    <div className="flex items-center gap-2 bg-[#404040] rounded-lg p-3">
+                  <div className="px-3 sm:px-4 pt-2 sm:pt-3">
+                    <div className="flex items-center gap-2 bg-[#404040] rounded-lg p-2 sm:p-3">
                       <div className="flex-shrink-0 relative">
                         {attachedFiles[0].type.startsWith('image/') && filePreviewUrls[0] ? (
                           <img 
                             src={filePreviewUrls[0]} 
                             alt={attachedFiles[0].name}
-                            className="w-10 h-10 object-cover rounded"
+                            className="w-8 h-8 sm:w-10 sm:h-10 object-cover rounded"
                           />
                         ) : (
-                          <div className="w-10 h-10 bg-[#2f2f2f] rounded flex items-center justify-center">
+                          <div className="w-8 h-8 sm:w-10 sm:h-10 bg-[#2f2f2f] rounded flex items-center justify-center">
                             {getFileIcon(attachedFiles[0].type, attachedFiles[0].name)}
                           </div>
                         )}
@@ -1629,17 +1559,17 @@ export default function EnhancedChatInterface() {
                   </div>
                 )}
 
-                <div className="flex items-end gap-2 p-4">
+                <div className="flex items-end gap-1 sm:gap-2 p-2 sm:p-4">
                   <button
                     type="button"
                     onClick={() => fileInputRef.current?.click()}
-                    className="text-[#8e8ea0] hover:text-white hover:bg-[#404040] h-8 w-8 rounded-full flex items-center justify-center transition-colors"
+                    className="text-[#8e8ea0] hover:text-white hover:bg-[#404040] h-7 w-7 sm:h-8 sm:w-8 rounded-full flex items-center justify-center transition-colors flex-shrink-0"
                     aria-label="Attach file"
                   >
-                    <Plus className="h-4 w-4" />
+                    <Plus className="h-3 w-3 sm:h-4 sm:w-4" />
                   </button>
 
-                  <div className="flex-1">
+                  <div className="flex-1 min-w-0">
                     <input
                       type="file"
                       ref={fileInputRef}
@@ -1654,16 +1584,16 @@ export default function EnhancedChatInterface() {
                       onChange={handleInputChange}
                       placeholder="Message ChatGPT"
                       disabled={isLoading || isUploading}
-                      className="w-full border-0 bg-transparent text-white placeholder-[#8e8ea0] focus:outline-none min-h-[24px] text-[16px] resize-none"
+                      className="w-full border-0 bg-transparent text-white placeholder-[#8e8ea0] focus:outline-none min-h-[20px] sm:min-h-[24px] text-sm sm:text-[16px] resize-none"
                       aria-label="Type your message"
                     />
                   </div>
 
-                  <div className="flex items-center gap-2">
-                    {/* Tools Button - like ChatGPT */}
+                  <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0">
+                    {/* Tools Button - hide on mobile to save space */}
                     <button
                       type="button"
-                      className="flex items-center gap-2 text-[#8e8ea0] hover:text-white hover:bg-[#404040] h-8 px-3 rounded-full text-sm transition-colors"
+                      className="hidden sm:flex items-center gap-2 text-[#8e8ea0] hover:text-white hover:bg-[#404040] h-8 px-3 rounded-full text-sm transition-colors"
                       aria-label="Tools"
                     >
                       <Settings className="h-4 w-4" />
@@ -1674,19 +1604,19 @@ export default function EnhancedChatInterface() {
                       <button
                         type="button"
                         onClick={stop}
-                        className="text-[#8e8ea0] hover:text-white hover:bg-[#404040] h-8 w-8 rounded-full flex items-center justify-center transition-colors"
+                        className="text-[#8e8ea0] hover:text-white hover:bg-[#404040] h-7 w-7 sm:h-8 sm:w-8 rounded-full flex items-center justify-center transition-colors"
                         aria-label="Stop generation"
                       >
-                        <X className="h-4 w-4" />
+                        <X className="h-3 w-3 sm:h-4 sm:w-4" />
                       </button>
                     )}
 
                     <button
                       type="button"
-                      className="text-[#8e8ea0] hover:text-white hover:bg-[#404040] h-8 w-8 rounded-full flex items-center justify-center transition-colors"
+                      className="text-[#8e8ea0] hover:text-white hover:bg-[#404040] h-7 w-7 sm:h-8 sm:w-8 rounded-full flex items-center justify-center transition-colors"
                       aria-label="Voice input"
                     >
-                      <Mic className="h-4 w-4" />
+                      <Mic className="h-3 w-3 sm:h-4 sm:w-4" />
                     </button>
 
                     <button
@@ -1697,66 +1627,22 @@ export default function EnhancedChatInterface() {
                         isUploading || 
                         isProcessingFiles
                       }
-                      className="bg-white text-black hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed h-8 w-8 rounded-full flex items-center justify-center transition-colors"
+                      className="bg-white text-black hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed h-7 w-7 sm:h-8 sm:w-8 rounded-full flex items-center justify-center transition-colors"
                       aria-label="Send message"
                     >
-                      <Send className="h-4 w-4" />
+                      <Send className="h-3 w-3 sm:h-4 sm:w-4" />
                     </button>
                   </div>
                 </div>
               </div>
             </form>
 
-            <p className="text-xs text-[#8e8ea0] text-center mt-3">
+            <p className="text-xs text-[#8e8ea0] text-center mt-2 sm:mt-3 px-2">
               ChatGPT can make mistakes. Check important info. <button className="underline hover:no-underline">See Cookie Preferences</button>
             </p>
           </div>
         </div>
       </main>
-      
-      {/* Keyboard Shortcuts Help Dialog */}
-      {showKeyboardShortcuts && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-[#2f2f2f] rounded-lg p-6 max-w-md w-full border border-[#404040]">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-white">Keyboard Shortcuts</h3>
-              <button
-                onClick={() => setShowKeyboardShortcuts(false)}
-                className="text-[#8e8ea0] hover:text-white"
-                aria-label="Close shortcuts help"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-            <div className="space-y-3 text-sm">
-              <div className="flex items-center justify-between">
-                <span className="text-[#acacac]">Focus input</span>
-                <kbd className="px-2 py-1 bg-[#404040] rounded text-white">⌘ K</kbd>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-[#acacac]">Toggle sidebar</span>
-                <kbd className="px-2 py-1 bg-[#404040] rounded text-white">⌘ /</kbd>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-[#acacac]">Send message</span>
-                <kbd className="px-2 py-1 bg-[#404040] rounded text-white">⌘ ↵</kbd>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-[#acacac]">Cancel editing</span>
-                <kbd className="px-2 py-1 bg-[#404040] rounded text-white">Esc</kbd>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-[#acacac]">Save & regenerate</span>
-                <kbd className="px-2 py-1 bg-[#404040] rounded text-white">⌘ ↵</kbd>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-[#acacac]">Show shortcuts</span>
-                <kbd className="px-2 py-1 bg-[#404040] rounded text-white">?</kbd>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }
