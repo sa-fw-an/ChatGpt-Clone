@@ -515,7 +515,7 @@ export default function ChatInterface() {
         formData.append('prompt', 'Please analyze this image and describe what you see in detail.')
       }
 
-      const response = await fetch('/api/process-file', {
+      const response = await fetch('/api/file-process', {
         method: 'POST',
         body: formData,
       })
@@ -543,7 +543,7 @@ export default function ChatInterface() {
 
       const result = await response.json()
       
-      // Store processed file data with file reference
+      // Store processed file data with enhanced metadata
       const processedFile = {
         ...result,
         originalFile: file,
@@ -553,9 +553,21 @@ export default function ChatInterface() {
       }
       
       setProcessedFiles(prev => [...prev, processedFile])
-      setUploadProgress(`${file.name} ready!`)
       
-      setTimeout(() => setUploadProgress(""), 1000)
+      // Enhanced success message for PDFs
+      if (file.type === 'application/pdf') {
+        if (result.extractedText && result.extractedText.length > 0) {
+          const textLength = result.extractedText.length
+          const readableSize = textLength > 1000 ? `${Math.round(textLength/1000)}k` : textLength
+          setUploadProgress(`✓ PDF processed: ${readableSize} characters extracted`)
+        } else {
+          setUploadProgress(`✓ PDF uploaded (no text content found)`)
+        }
+      } else {
+        setUploadProgress(`✓ ${file.name} ready!`)
+      }
+      
+      setTimeout(() => setUploadProgress(""), 2000)
       
       return processedFile
 
@@ -863,15 +875,19 @@ export default function ChatInterface() {
       setIsLoading(true)
       setIsSidebarLoading(true) // Show loading in sidebar when AI is responding
       
-      try {
-        const requestBody = {
-          message: fileData 
-            ? `${messageContent || "What is the content of this file? Please analyze and summarize it."}`
-            : messageContent || "Hello",
-          chatId: currentChatId,
-          fileData: fileData,
-          model: selectedModel
-        }
+      try {      const requestBody = {
+        message: fileData 
+          ? `${messageContent || "What is the content of this file? Please analyze and summarize it."}`
+          : messageContent || "Hello",
+        chatId: currentChatId,
+        fileData: fileData,
+        model: selectedModel
+      }
+      
+      // Show processing status for PDFs
+      if (fileData && fileData.fileType === 'application/pdf') {
+        setUploadProgress(`Processing PDF: ${fileData.fileName}`)
+      }
         
         const response = await fetch('/api/chats/message', {
           method: 'POST',

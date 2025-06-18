@@ -86,22 +86,44 @@ export async function POST(request: NextRequest) {
         fileContext += `\nFile content:\n${fileData.extractedText}`;
       }
       if (fileData.url && fileData.fileType.startsWith('image/')) {
-        fileContext += `\nImage URL: ${fileData.url}`;
-      }
+        fileContext += `\nImage URL: ${fileData.url}`;      }
       
       conversationHistory.push({
         role: 'system' as const,
         content: fileContext
       });
-    }    // Generate response with image support if needed
-    let openaiMessages: any[] = [
-      {
+    }
+
+    // Generate response with image support if needed
+    let openaiMessages: any[] = [      {
         role: 'system',
-        content: 'You are a helpful AI assistant. When users upload files, you have access to the extracted content of those files. Always analyze and respond based on the actual content provided. If file content is available, use it to answer questions accurately and specifically. Focus on the actual content and information contained within the uploaded files rather than giving generic information about file types. When a user asks about uploaded content, provide detailed analysis, summaries, or answers based on the actual text extracted from their files.'
+        content: `You are an advanced AI assistant specialized in document analysis and contextual Q&A. Your primary capabilities include:
+
+DOCUMENT PROCESSING:
+- When users upload PDF files, you receive the complete extracted text content
+- You can analyze text files, JSON data, CSV files, code files, and other text-based documents
+- You have access to the full content of uploaded documents for accurate analysis
+
+RESPONSE GUIDELINES:
+1. PRIORITY: Always base your answers on the actual content provided from uploaded files
+2. ACCURACY: Quote specific sections from documents when relevant to support your answers
+3. CLARITY: If information is not available in the uploaded content, clearly state this limitation
+4. STRUCTURE: For complex documents, organize your responses with clear sections and references
+5. CONTEXT: Maintain awareness of the document structure, headings, and organization when answering
+
+SPECIAL HANDLING:
+- For PDFs: Treat extracted text as the authoritative source for all questions about the document
+- For code files: Provide analysis of functionality, structure, and potential improvements
+- For data files (JSON/CSV): Offer insights about data structure, patterns, and content analysis
+- For text documents: Summarize, analyze, and answer questions based on the actual content
+
+Always prioritize document content over general knowledge when the user asks about uploaded materials. Provide detailed, accurate responses that demonstrate thorough understanding of the uploaded content.`
       },
       ...contextMessages,
       ...conversationHistory,
-    ];    // Handle image files with vision
+    ];
+
+    // Handle image files with vision
     if (fileData && fileData.fileType.startsWith('image/')) {
       openaiMessages.push({
         role: 'user',
@@ -110,15 +132,45 @@ export async function POST(request: NextRequest) {
           { type: 'image_url', image_url: { url: fileData.url } }
         ]
       });
-    } else {
-      // If we have file data with extracted text, include it in the user message
+    } else {      // If we have file data with extracted text, enhance the user message with structured context
       let userMessage = message;
       if (fileData && fileData.extractedText && fileData.extractedText.length > 0) {
-        userMessage = `I've uploaded a file: ${fileData.fileName}. Here's the content of the file:
+        // Enhanced PDF context passing
+        if (fileData.fileType === 'application/pdf') {
+          userMessage = `[CONTEXT: PDF Document Analysis]
+Document: "${fileData.fileName}"
+File Size: ${fileData.fileSize ? Math.round(fileData.fileSize / 1024 / 1024 * 100) / 100 + ' MB' : 'unknown'}
 
+EXTRACTED CONTENT:
 ${fileData.extractedText}
 
-User question: ${message}`;
+USER QUESTION: ${message}
+
+Instructions: Please analyze the PDF content above and answer the user's question based specifically on the information contained in this document. If the answer is not in the document, please state that clearly.`;
+        } else if (fileData.fileType.includes('text/') || 
+                   fileData.fileName.endsWith('.txt') || 
+                   fileData.fileName.endsWith('.md') ||
+                   fileData.fileName.endsWith('.json') ||
+                   fileData.fileName.endsWith('.csv')) {
+          userMessage = `[CONTEXT: ${fileData.fileType.toUpperCase()} File Analysis]
+Document: "${fileData.fileName}"
+
+FILE CONTENT:
+${fileData.extractedText}
+
+USER QUESTION: ${message}
+
+Instructions: Please analyze the file content above and answer the user's question based on the information contained in this file.`;
+        } else {
+          userMessage = `[CONTEXT: Document Analysis]
+File: ${fileData.fileName}
+Type: ${fileData.fileType}
+
+CONTENT:
+${fileData.extractedText}
+
+USER QUESTION: ${message}`;
+        }
       }
       openaiMessages.push({ role: 'user', content: userMessage });
     }    const completion = await openai.chat.completions.create({
@@ -131,8 +183,7 @@ User question: ${message}`;
 
     // Save to MongoDB (reuse existing client and db)
     const messagesToSave = [];
-    
-    // Add file message if present
+      // Add file message if present with enhanced metadata
     if (fileData) {
       const fileMessage = {
         id: new ObjectId().toString(),
@@ -145,7 +196,18 @@ User question: ${message}`;
           name: fileData.fileName,
           fileType: fileData.fileType,
           size: fileData.fileSize,
-          extractedText: fileData.extractedText
+          extractedText: fileData.extractedText,
+          // Enhanced metadata for PDF context
+          metadata: {
+            hasText: fileData.extractedText && fileData.extractedText.length > 0,
+            textLength: fileData.extractedText ? fileData.extractedText.length : 0,
+            isPDF: fileData.fileType === 'application/pdf',
+            processingDate: new Date(),
+            cloudinaryId: fileData.cloudinaryId,
+            contentPreview: fileData.extractedText && fileData.extractedText.length > 0 
+              ? fileData.extractedText.substring(0, 500) + (fileData.extractedText.length > 500 ? '...' : '')
+              : null
+          }
         }
       };
       messagesToSave.push(fileMessage);

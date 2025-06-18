@@ -142,7 +142,6 @@ export async function POST(req: NextRequest) {
       fileType: file.type,
       fileSize: file.size
     });
-
   } catch (error) {
     console.error('Image processing error:', error);
     return NextResponse.json({
@@ -150,4 +149,13 @@ export async function POST(req: NextRequest) {
       details: error instanceof Error ? error.message : 'Unknown error'
     }, { status: 500 });
   }
+}
+
+// Export GET method to prevent 405 errors
+export async function GET() {
+  return NextResponse.json({
+    message: 'Image processing endpoint is working',
+    supportedTypes: ['jpg', 'png', 'gif', 'webp'],
+    maxSize: '10MB'
+  });
 }

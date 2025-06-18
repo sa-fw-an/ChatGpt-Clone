@@ -1,0 +1,17 @@
+{
+  "functions": {
+    "app/api/file-process/route.ts": {
+      "maxDuration": 30
+    },
+    "app/api/image-process/route.ts": {
+      "maxDuration": 30
+    },
+    "app/api/upload/route.ts": {
+      "maxDuration": 30
+    },
+    "app/api/file-upload/route.ts": {
+      "maxDuration": 30
+    }
+  },
+  "regions": ["iad1"]
+}

@@ -165,3 +165,12 @@ export async function POST(req: NextRequest) {
     }, { status: 500 });
   }
 }
+
+// Export GET method to prevent 405 errors
+export async function GET() {
+  return NextResponse.json({
+    message: 'File upload endpoint is working',
+    supportedTypes: ['images', 'documents', 'text files'],
+    maxSize: '50MB for documents, 10MB for images'
+  });
+}

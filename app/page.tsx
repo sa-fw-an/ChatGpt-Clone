@@ -1,5 +1,5 @@
-import ChatInterface from "@/components/chat-interface"
+import EnhancedChatInterface from "@/components/enhanced-chat-interface"
 
 export default function Home() {
-  return <ChatInterface />
+  return <EnhancedChatInterface />
 }

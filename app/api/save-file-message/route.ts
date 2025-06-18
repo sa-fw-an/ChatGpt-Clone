@@ -118,3 +118,10 @@ export async function POST(req: NextRequest) {
     }, { status: 500 });
   }
 }
+
+// Export GET method to prevent 405 errors
+export async function GET() {
+  return NextResponse.json({
+    message: 'Save file message endpoint is working'
+  });
+}

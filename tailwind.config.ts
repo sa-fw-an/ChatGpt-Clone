@@ -10,6 +10,16 @@ const config: Config = {
   ],
   theme: {
   	extend: {
+  		screens: {
+  			'xs': '475px',
+  			'3xl': '1600px',
+  		},
+  		spacing: {
+  			'safe-top': 'env(safe-area-inset-top)',
+  			'safe-bottom': 'env(safe-area-inset-bottom)',
+  			'safe-left': 'env(safe-area-inset-left)',
+  			'safe-right': 'env(safe-area-inset-right)',
+  		},
   		colors: {
   			background: 'hsl(var(--background))',
   			foreground: 'hsl(var(--foreground))',
@@ -67,6 +77,13 @@ const config: Config = {
   			md: 'calc(var(--radius) - 2px)',
   			sm: 'calc(var(--radius) - 4px)'
   		},
+  		fontSize: {
+  			'2xs': ['0.625rem', { lineHeight: '0.75rem' }],
+  		},
+  		maxWidth: {
+  			'8xl': '88rem',
+  			'9xl': '96rem',
+  		},
   		keyframes: {
   			'accordion-down': {
   				from: {
@@ -83,11 +100,26 @@ const config: Config = {
   				to: {
   					height: '0'
   				}
-  			}
+  			},
+  			'fade-in': {
+  				'0%': { opacity: '0', transform: 'translateY(10px)' },
+  				'100%': { opacity: '1', transform: 'translateY(0)' },
+  			},
+  			'slide-in-left': {
+  				'0%': { transform: 'translateX(-100%)' },
+  				'100%': { transform: 'translateX(0)' },
+  			},
+  			'slide-out-left': {
+  				'0%': { transform: 'translateX(0)' },
+  				'100%': { transform: 'translateX(-100%)' },
+  			},
   		},
   		animation: {
   			'accordion-down': 'accordion-down 0.2s ease-out',
-  			'accordion-up': 'accordion-up 0.2s ease-out'
+  			'accordion-up': 'accordion-up 0.2s ease-out',
+  			'fade-in': 'fade-in 0.3s ease-out',
+  			'slide-in-left': 'slide-in-left 0.3s ease-out',
+  			'slide-out-left': 'slide-out-left 0.3s ease-out',
   		}
   	}
   },
